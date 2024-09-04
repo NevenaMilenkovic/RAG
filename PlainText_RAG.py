@@ -1,4 +1,5 @@
 # RAG with plain text document using Langchain and OpenAI
+# plain text file is from: The Project Gutenberg eBook of The Balkans: A History of Bulgaria—Serbia—Greece—Rumania—Turkey
 
 !pip install langchain langchain-openai faiss-cpu langchain-community langchain-chroma
 
