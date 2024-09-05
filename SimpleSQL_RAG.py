@@ -17,8 +17,11 @@ print(db.dialect)
 print(db.get_usable_table_names())
 db.run("SELECT * FROM crime_scene_report LIMIT 10;")
 
-from langchain_community.tools.sql_database.tool import QuerySQLDataBaseTool
+from langchain.chains import create_sql_query_chain
+from langchain_openai import ChatOpenAI
+llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0)
 
+from langchain_community.tools.sql_database.tool import QuerySQLDataBaseTool
 execute_query = QuerySQLDataBaseTool(db=db)
 write_query = create_sql_query_chain(llm, db)
 chain = write_query | execute_query
