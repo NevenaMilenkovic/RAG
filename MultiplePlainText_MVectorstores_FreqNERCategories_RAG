@@ -1,0 +1,20 @@
+# RAG with input of multiple plain text documents categoriezed by frequency and NER using multiple vectorstores
+# Plain text documents are: The Project Gutenberg eBook of Famous Men of the Middle Ages, The Project Gutenberg eBook of Napoleon Bonaparte, The Project Gutenberg eBook of The Balkans: A History of Bulgaria—Serbia—Greece—Rumania—Turkey,
+# The Project Gutenberg eBook of The Balkan Wars: 1912-1913, The Project Gutenberg eBook of Servian Popular Poetry, The Project Gutenberg eBook of The Frontiers of Language and Nationality in Europe,
+# The Project Gutenberg eBook of Europe Since 1918, The Project Gutenberg eBook of Wars & Treaties, 1815 to 1914, The Project Gutenberg eBook of Serbian Fairy Tales, The Project Gutenberg eBook of Short stories from the Balkans
+
+pip install langchain langchain-openai langchain-community langchain-chroma spacy langchain-fireworks
+
+import os
+import bs4
+from langchain import hub
+from langchain_community.document_loaders import WebBaseLoader
+from langchain_chroma  import Chroma
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables import RunnablePassthrough
+from langchain_fireworks.llms import Fireworks
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_fireworks.embeddings import FireworksEmbeddings
+from langchain_fireworks import ChatFireworks
+
+os.environ['FIREWORKS_API_KEY'] = 'your_api_key'
