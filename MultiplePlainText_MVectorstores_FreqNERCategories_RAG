@@ -3,7 +3,7 @@
 # The Project Gutenberg eBook of The Balkan Wars: 1912-1913, The Project Gutenberg eBook of Servian Popular Poetry, The Project Gutenberg eBook of The Frontiers of Language and Nationality in Europe,
 # The Project Gutenberg eBook of Europe Since 1918, The Project Gutenberg eBook of Wars & Treaties, 1815 to 1914, The Project Gutenberg eBook of Serbian Fairy Tales, The Project Gutenberg eBook of Short stories from the Balkans
 
-pip install langchain langchain-openai langchain-community langchain-chroma spacy langchain-fireworks
+pip install langchain langchain-openai langchain-community langchain-chroma spacy langchain-fireworks typing-extensions==4.5.0
 
 import os
 import bs4
@@ -16,5 +16,194 @@ from langchain_fireworks.llms import Fireworks
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_fireworks.embeddings import FireworksEmbeddings
 from langchain_fireworks import ChatFireworks
+from langchain_core.documents import Document
+import spacy
+import re
+from sklearn.feature_extraction.text import TfidfVectorizer
 
 os.environ['FIREWORKS_API_KEY'] = 'your_api_key'
+
+embeddings = FireworksEmbeddings()
+llm = ChatFireworks(model='accounts/fireworks/models/llama-v3-70b-instruct')
+
+file_paths = ["/content/pg11716.txt", "/content/pg58205.txt","/content/pg67191.txt","/content/pg39028.txt",
+        "/content/pg3725.txt","/content/pg73663.txt","/content/pg36192.txt","/content/pg59573.txt","/content/pg60026.txt","/content/pg3775.txt"]
+
+def load_documents_with_categories(file_paths):
+    documents = []
+    for file_path in file_paths:
+        with open(file_path, 'r') as f:
+            content = f.read()
+        document = Document(page_content=content, metadata={"category": keywords_extraction(file_path)})
+        documents.append(document)
+    return documents
+
+keyword_strings=[]
+def keywords_extraction(document_path):
+ 
+    try:
+        with open(document_path, 'r', encoding='utf-8') as file:
+            document_text = file.read()
+
+        nlp = spacy.load('en_core_web_sm')
+        doc = nlp(document_text)
+        filtered_tokens = [token.text for token in doc if not token.is_stop]
+
+        new_tokens=[word for word in filtered_tokens if not word.strip().isdigit()]
+        new_tokens=[string for string in new_tokens if not any(char.isdigit() for char in string)]
+        new_tokens=[string for string in new_tokens if not len(string)==1]
+        new_tokens=[string for string in new_tokens if " " or "\\" not in string]
+
+        accent_pattern = re.compile(r'[^\x00-\x7F]')
+
+        new_tokens = [word for word in new_tokens if not accent_pattern.search(word)]
+        new_tokens = [word for word in new_tokens if not re.search(r"\bthe\b", word, flags=re.IGNORECASE)]
+        new_tokens = [word for word in new_tokens if not re.search(r"\betc\b", word, flags=re.IGNORECASE)]
+        new_tokens = [word for word in new_tokens if not re.search(r"\bproject\b", word, flags=re.IGNORECASE)]
+        new_tokens = [word for word in new_tokens if not re.search(r"\bgutenberg\b", word, flags=re.IGNORECASE)]
+        new_tokens = [word for word in new_tokens if not re.search(r"\bebook\b", word, flags=re.IGNORECASE)]
+        new_tokens=[word.strip() for word in new_tokens]
+        new_tokens=[string for string in new_tokens if not len(string)==1]
+        new_tokens=[string for string in new_tokens if not len(string)==2]
+        tekst=nlp(" ".join(new_tokens))
+
+        entities = [(ent.label_, ent.text) for ent in tekst.ents if ent.label_ in ["PERSON", "GPE"]]
+        filtered_entities = [entity for entity in entities if len(entity[1].split()) <= 2]
+
+        entity_counts = {}
+        for entity_type, entity_text in filtered_entities:
+            entity_counts.setdefault(entity_type, []).append(entity_text)
+
+        sorted_entities = [(entity_type, entity_text) for entity_type, entity_list in entity_counts.items() for entity_text in entity_list]
+        sorted_entities = sorted(sorted_entities, key=lambda x: len(x[1]), reverse=True)
+        ner_words = [entity_text for entity_type, entity_text in sorted_entities]
+        ner_words=set(ner_words)
+        ner_words=list(ner_words)
+        ner_words=ner_words[:40]
+
+        vectorizer = TfidfVectorizer(ngram_range=(1,1))
+
+        tfidf_matrix = vectorizer.fit_transform(new_tokens)
+
+        feature_names = vectorizer.get_feature_names_out()
+        tfidf_scores = tfidf_matrix.toarray()[0]
+        sorted_indices = tfidf_scores.argsort()[::-1]
+
+        num_keywords = 20  # You can adjust this numbe
+        feature_names=set(feature_names)
+        feature_names=list(feature_names)
+        top_keywords = [feature_names[i] for i in sorted_indices[:num_keywords]]
+        top_keywords=top_keywords+ner_words
+
+        keywords_string = ' '.join(top_keywords)
+        keyword_strings.append(keywords_string)
+        return keywords_string
+
+    except FileNotFoundError:
+        print(f"Error: File not found at path '{document_path}'.")
+        return None
+    except Exception as e:
+        print(f"Error: An unexpected error occurred: {e}")
+        return None
+
+documents = load_documents_with_categories(file_paths)
+
+text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+splits = text_splitter.split_documents(documents)
+
+vectorstores = {}
+for category in keyword_strings:
+    category_splits = [split for split in splits if split.metadata["category"] == category]
+    vectorstore = Chroma.from_documents(documents=category_splits, embedding=embeddings)
+    vectorstores[category] = vectorstore
+
+retrievers = {category: vectorstore.as_retriever() for category, vectorstore in vectorstores.items()}
+
+prompt=hub.pull("prompt1", api_key='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')
+
+def format_docs(docs):
+    return "\n\n".join(doc.page_content for doc in docs)
+
+def select_retriever(query):
+   
+    best_match_retriever = None
+    max_matching_keywords = 0
+    category_number=0
+
+    for category, retriever in retrievers.items():
+        category_number+=1
+        keywords = category.split()
+        current_matching = [keyword for keyword in keywords if keyword in query]
+        matching_count = len(current_matching)
+
+        if matching_count > max_matching_keywords:
+            max_matching_keywords = matching_count
+            best_match_retriever = retriever
+            matching_keywords = current_matching
+
+            print("New best match found for category:",category_number, matching_keywords, "with", matching_count, "matching keywords.")
+
+    if best_match_retriever:
+        print("Selected retriever for query:", query)
+        return best_match_retriever
+
+    print("Using default retriever")
+    return retrievers.get("default_category", retrievers[list(retrievers.keys())[0]])
+
+def create_rag_chain(query):
+    return (
+        {"context": select_retriever(query) | format_docs, "question": RunnablePassthrough()}
+        | prompt
+        | llm
+        | StrOutputParser()
+    )
+
+query1="How long was Turkish occupation of Bulgaria in Balkan History?"
+rag_chain1 = create_rag_chain(query1)
+response1 = rag_chain1.invoke(query1)
+print(response1)
+
+query2="What language is spoken in Bulgaria by minority?"
+rag_chain2 = create_rag_chain(query2)
+response2 = rag_chain2.invoke(query2)
+print(response2)
+
+query3="Did the old couple stay under the pine-tree?"
+rag_chain3 = create_rag_chain(query3)
+response3 = rag_chain2.invoke(query3)
+print(response3)
+
+query4="Which nation Napoleon wanted Italians to be friendly with?"
+rag_chain4 = create_rag_chain(query4)
+response4 = rag_chain2.invoke(query4)
+print(response4)
+
+query5="What was the name of Jelitza youngest brother?"
+rag_chain5 = create_rag_chain(query5)
+response5 = rag_chain2.invoke(query5)
+print(response5)
+
+query6="Who was succesor of King Connard?"
+rag_chain6 = create_rag_chain(query6)
+response6 = rag_chain2.invoke(query6)
+print(response6)
+
+query7="Was Jona fearfull?"
+rag_chain7 = create_rag_chain(query7)
+response7 = rag_chain2.invoke(query7)
+print(response7)
+
+query8="Was Serbia led by Kara-george?"
+rag_chain8 = create_rag_chain(query8)
+response8 = rag_chain2.invoke(query8)
+print(response8)
+
+query9="Why did France sponsor Poles?"
+rag_chain9 = create_rag_chain(query9)
+response9 = rag_chain2.invoke(query9)
+print(response9)
+
+query10="Was Lorraine part of Germany state?"
+rag_chain10 = create_rag_chain(query10)
+response10 = rag_chain2.invoke(query10)
+print(response10)
